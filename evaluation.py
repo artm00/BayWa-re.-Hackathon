@@ -1,6 +1,6 @@
 """Model evaluation and selection.
 
-    scores = pd.concat({name: evaluate(m, ds_train, ds_test, curves) for name, m in models.items()},
+    scores = pd.concat({name: evaluate(m, ds_train, ds_test) for name, m in models.items()},
                        names=["model", "turbine"])
     best_name = select_best(scores)
 """
@@ -9,16 +9,15 @@ import numpy as np
 import pandas as pd
 
 from get_dataset import target_turbines
-from power_curves import energy_kwh
+from power_curves import energy_kwh, powercurve
 
 
-def evaluate(model, ds_train: pd.DataFrame, ds_test: pd.DataFrame, curves: dict) -> pd.DataFrame:
+def evaluate(model, ds_train: pd.DataFrame, ds_test: pd.DataFrame) -> pd.DataFrame:
     """Score a model: learn on ds_train, predict and score ds_test.
 
     The target turbines are hidden (set to NaN) before predicting, so the model sees the test period
     exactly like an outage. Errors are computed only where the real wind speed exists.
     model: function model(ds_train, ds) -> predicted target wind speeds, e.g. models.neighbour_mean.
-    curves: {turbine: power curve function}, i.e. get_dataset.POWER_CURVES.
 
     Returns one row per target turbine with columns
     wind_rmse, wind_mae (m/s), power_rmse, power_mae (kW), energy_dev_pct, coverage.
@@ -34,8 +33,8 @@ def evaluate(model, ds_train: pd.DataFrame, ds_test: pd.DataFrame, curves: dict)
         ok = truth[t].notna() & pred[t].notna()
         y, p = truth[t][ok], pred[t][ok]
         wind_err = p - y
-        power_err = curves[t](p) - curves[t](y)
-        energy_true, energy_pred = energy_kwh(curves[t], y), energy_kwh(curves[t], p)
+        power_err = powercurve(p) - powercurve(y)
+        energy_true, energy_pred = energy_kwh(y), energy_kwh(p)
         rows[t] = {
             "wind_rmse": np.sqrt((wind_err**2).mean()),
             "wind_mae": wind_err.abs().mean(),
