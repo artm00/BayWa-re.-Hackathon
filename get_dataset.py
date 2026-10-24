@@ -1,7 +1,6 @@
-"""Load the wind turbine data and power curves.
+"""Load the wind turbine data and split it into train, test and result sets.
 
     ds_train, ds_test, ds_result = get_data()
-    curves = get_power_curves()
 
 Each dataset is one DataFrame with a 10-minute timestamp index (Berlin local time, no tz) and
 two-level columns (turbine, variable), plus a "complete" flag:
@@ -14,11 +13,9 @@ two-level columns (turbine, variable), plus a "complete" flag:
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 FREQ = "10min"
-INTERVAL_HOURS = 10 / 60
 TARGET_PREFIX = "T"  # README: target turbines start with T, all others are references
 
 
@@ -103,43 +100,3 @@ def get_data(data_dir="data", test_start="2026-09-04", test_end=None, result_per
         ds_train = ds_train[ds_train["complete"]]
     return ds_train.copy(), ds_test, ds_result
 
-
-class PowerCurve:
-    """Power curve of one turbine: wind speed (m/s) -> power (kW; the files state no unit, 4500 = 4.5 MW)."""
-
-    def __init__(self, name, table):
-        self.name = name
-        self.table = table.sort_values("wind_speed").reset_index(drop=True)
-
-    def __repr__(self):
-        return f"PowerCurve({self.name!r}, rated {self.table['power'].max():.0f} kW)"
-
-    def power(self, wind_speed):
-        """Power for each wind speed, linearly interpolated between table points.
-
-        0 below the table and above its last point (cut-out); NaN wind speed gives NaN power.
-        Accepts a scalar, array or Series (a Series keeps its index).
-        """
-        p = np.interp(wind_speed, self.table["wind_speed"], self.table["power"], left=0.0, right=0.0)
-        if isinstance(wind_speed, pd.Series):
-            return pd.Series(p, index=wind_speed.index, name=wind_speed.name)
-        return p
-
-    def energy_kwh(self, wind_speed):
-        """Energy of a series of 10-minute wind speeds in kWh.
-
-        NaN intervals are skipped, so compare energies only over the same time points.
-        """
-        return float(np.nansum(self.power(wind_speed)) * INTERVAL_HOURS)
-
-
-def get_power_curves(data_dir="data"):
-    """Read every <turbine>_power_curve.xlsx -> {"T1": PowerCurve, ...}."""
-    curves = {}
-    for path in sorted(Path(data_dir).glob("*_power_curve.xlsx")):
-        if path.name.startswith("~$"):
-            continue
-        table = pd.read_excel(path)
-        name = table["turbine_name"].iloc[0]
-        curves[name] = PowerCurve(name, table[["wind_speed", "power"]])
-    return curves
