@@ -20,7 +20,8 @@ def evaluate(model, ds_train: pd.DataFrame, ds_test: pd.DataFrame) -> pd.DataFra
     model: function model(ds_train, ds) -> predicted target wind speeds, e.g. models.neighbour_mean.
 
     Returns one row per target turbine with columns
-    wind_rmse, wind_mae (m/s), power_rmse, power_mae (kW), energy_dev_pct, coverage.
+    wind_rmse, wind_mae (m/s), power_rmse, power_mae (kW), energy_dev_pct,
+    energy_true_kwh, energy_pred_kwh, energy_dev_kwh (predicted - real, same time points), coverage.
     """
     targets = target_turbines(ds_test)
     hidden = ds_test.copy()
@@ -42,6 +43,9 @@ def evaluate(model, ds_train: pd.DataFrame, ds_test: pd.DataFrame) -> pd.DataFra
             "power_mae": power_err.abs().mean(),
             # required metric "deviation of summed energy yield", over the same time points
             "energy_dev_pct": 100 * (energy_pred - energy_true) / energy_true,
+            "energy_true_kwh": energy_true,
+            "energy_pred_kwh": energy_pred,
+            "energy_dev_kwh": energy_pred - energy_true,
             "coverage": pred[t].notna().mean(),
         }
     return pd.DataFrame(rows).T
