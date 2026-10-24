@@ -21,6 +21,11 @@ import pandas as pd
 
 from get_dataset import reference_turbines, target_turbines
 
+# wind direction sectors come from park H (column "sector" of H1, shared by H1-H5): the target park's
+# own direction is missing during the outage and hidden by evaluate(), so it cannot be used
+SECTOR_TURBINE = "H1"
+MIN_SECTOR_ROWS = 150   # fewer training rows in a sector -> no own line, the global line is used there
+
 
 def neighbour_average(ds):
     """Mean wind speed of all reference turbines at every time point (Excel AVERAGE).
@@ -65,7 +70,42 @@ def neighbour_mean(ds_train, ds):
     )
 
 
+def neighbour_mean_sector_params(ds_train):
+    """neighbour_mean_params fitted separately for each of the 12 wind direction sectors (30° each).
+
+    Returns one row per (sector, target turbine) with slope, intercept, r2, corr and n. Sectors with
+    fewer than MIN_SECTOR_ROWS training rows are left out.
+    """
+    sector = ds_train[SECTOR_TURBINE, "sector"]
+    params = {}
+    for s in range(12):
+        in_sector = ds_train[sector.eq(s).fillna(False)]   # rows without a sector belong to none
+        if len(in_sector) >= MIN_SECTOR_ROWS:
+            params[s] = neighbour_mean_params(in_sector)
+    return pd.concat(params, names=["sector", "target"])
+
+
+def neighbour_mean_sector(ds_train, ds):
+    """Like neighbour_mean, but with one straight line per wind direction sector and target turbine.
+
+    For every time point: look up the sector (park H's wind direction) and use that sector's slope
+    and intercept: T = intercept[sector] + slope[sector] * neighbours, clipped at 0 m/s.
+    Where the sector is unknown or had too few training rows, the global neighbour_mean line is used.
+    """
+    global_params = neighbour_mean_params(ds_train)
+    sector_params = neighbour_mean_sector_params(ds_train)
+    x = neighbour_average(ds)
+    sector = ds[SECTOR_TURBINE, "sector"].astype(float)   # NaN where unknown
+
+    pred = {}
+    for t, g in global_params.iterrows():
+        per_sector = sector_params.xs(t, level="target")   # index: sector number
+        slope = sector.map(per_sector["slope"]).fillna(g.slope)
+        intercept = sector.map(per_sector["intercept"]).fillna(g.intercept)
+        pred[t] = (intercept + slope * x).clip(lower=0)
+    return pd.DataFrame(pred, index=ds.index)
+
+
 # TODO: further candidate models, simplest first (the challenge prioritises explainability):
 #   - best single reference per target (highest correlation), linear fit T = a * ref + b
 #   - multiple linear regression on all references / mean of the H park only
-#   - separate fits per wind direction sector
